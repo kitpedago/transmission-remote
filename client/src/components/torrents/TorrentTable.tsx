@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useCallback } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -8,8 +8,12 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { cn, formatBytes, formatSpeed, formatEta, formatRatio, formatDate, getStatusLabel, TORRENT_STATUS } from '@/lib/utils';
 import { useAppStore, type SidebarFilter } from '@/stores/app-store';
+import { startTorrents, stopTorrents, removeTorrents, verifyTorrents } from '@/api/transmission';
+import { ContextMenu } from './ContextMenu';
 import type { Torrent } from '@/types/transmission';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 
@@ -126,7 +130,9 @@ interface TorrentTableProps {
 
 export function TorrentTable({ torrents }: TorrentTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
-  const { sidebarFilter, selectedTorrentIds, toggleTorrentSelection, setSelectedTorrentIds } = useAppStore();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const queryClient = useQueryClient();
+  const { sidebarFilter, selectedTorrentIds, toggleTorrentSelection, setSelectedTorrentIds, activeConnectionId } = useAppStore();
 
   const filtered = useMemo(() => filterTorrents(torrents, sidebarFilter), [torrents, sidebarFilter]);
 
@@ -140,8 +146,75 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
     getRowId: (row) => String(row.id),
   });
 
+  const invalidate = useCallback(() => queryClient.invalidateQueries({ queryKey: ['torrents'] }), [queryClient]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!activeConnectionId) return;
+    const ids = useAppStore.getState().selectedTorrentIds;
+    const connId = activeConnectionId;
+
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      const ids = useAppStore.getState().selectedTorrentIds;
+      if (!ids.length && !['F3'].includes(e.key)) return;
+
+      try {
+        if (e.key === 'F3' && !e.shiftKey) {
+          e.preventDefault();
+          await startTorrents(connId, ids);
+          invalidate();
+        } else if (e.key === 'F3' && e.shiftKey) {
+          e.preventDefault();
+          await fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'torrent-start-now', arguments: { ids } }) });
+          invalidate();
+        } else if (e.key === 'F4') {
+          e.preventDefault();
+          await stopTorrents(connId, ids);
+          invalidate();
+        } else if (e.key === 'Delete' && !e.shiftKey) {
+          e.preventDefault();
+          if (confirm('Enlever les torrents sélectionnés ?')) {
+            await removeTorrents(connId, ids, false);
+            invalidate();
+          }
+        } else if (e.key === 'Delete' && e.shiftKey) {
+          e.preventDefault();
+          if (confirm('Enlever les torrents ET supprimer les données locales ?')) {
+            await removeTorrents(connId, ids, true);
+            invalidate();
+          }
+        } else if (e.key === 'r' && e.ctrlKey) {
+          e.preventDefault();
+          await fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'torrent-reannounce', arguments: { ids } }) });
+          invalidate();
+          toast.success('Relancé');
+        } else if (e.key === 'a' && e.ctrlKey) {
+          e.preventDefault();
+          useAppStore.getState().setSelectedTorrentIds(filtered.map((t) => t.id));
+        } else if (e.key === 'Enter' && e.altKey) {
+          e.preventDefault();
+          useAppStore.getState().setDetailPanelOpen(true);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Erreur');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeConnectionId, filtered, invalidate]);
+
+  const handleContextMenu = (e: React.MouseEvent, torrentId: number) => {
+    e.preventDefault();
+    // If right-clicked torrent is not in selection, select it
+    if (!selectedTorrentIds.includes(torrentId)) {
+      useAppStore.getState().setSelectedTorrentIds([torrentId]);
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 overflow-auto relative">
       <table className="w-full text-[13px]">
         <thead className="sticky top-0 bg-muted/80 backdrop-blur z-10">
           {table.getHeaderGroups().map((hg) => (
@@ -175,8 +248,12 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
                   'cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/50',
                   isSelected && 'bg-primary/10',
                 )}
-                onClick={(e) => toggleTorrentSelection(row.original.id, e.ctrlKey || e.metaKey)}
+                onClick={(e) => {
+                  const visibleIds = table.getRowModel().rows.map((r) => r.original.id);
+                  toggleTorrentSelection(row.original.id, e.ctrlKey || e.metaKey, e.shiftKey, visibleIds);
+                }}
                 onDoubleClick={() => useAppStore.getState().setDetailPanelOpen(true)}
+                onContextMenu={(e) => handleContextMenu(e, row.original.id)}
               >
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className="px-2 py-0.5 whitespace-nowrap truncate" style={{ maxWidth: cell.column.getSize() }}>
@@ -195,6 +272,15 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
           )}
         </tbody>
       </table>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onShowProperties={() => useAppStore.getState().setDetailPanelOpen(true)}
+        />
+      )}
     </div>
   );
 }
