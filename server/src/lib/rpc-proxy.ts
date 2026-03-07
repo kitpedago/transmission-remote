@@ -1,9 +1,21 @@
-import type { ConnectionRow } from '../db/schema.js';
+// Connection info passed from the client
+export interface ConnectionInfo {
+  host: string;
+  port: number;
+  ssl: boolean;
+  username: string;
+  password: string;
+  rpc_path: string;
+}
 
-// Cache CSRF session IDs per connection
-const sessionIds = new Map<number, string>();
+// Cache CSRF session IDs per connection (keyed by host:port)
+const sessionIds = new Map<string, string>();
 
-export async function proxyRpc(conn: ConnectionRow, body: unknown): Promise<unknown> {
+function cacheKey(conn: ConnectionInfo): string {
+  return `${conn.host}:${conn.port}`;
+}
+
+export async function proxyRpc(conn: ConnectionInfo, body: unknown): Promise<unknown> {
   const protocol = conn.ssl ? 'https' : 'http';
   const url = `${protocol}://${conn.host}:${conn.port}${conn.rpc_path}`;
 
@@ -15,7 +27,8 @@ export async function proxyRpc(conn: ConnectionRow, body: unknown): Promise<unkn
     headers['Authorization'] = 'Basic ' + Buffer.from(`${conn.username}:${conn.password}`).toString('base64');
   }
 
-  const cachedSessionId = sessionIds.get(conn.id);
+  const key = cacheKey(conn);
+  const cachedSessionId = sessionIds.get(key);
   if (cachedSessionId) {
     headers['X-Transmission-Session-Id'] = cachedSessionId;
   }
@@ -30,7 +43,7 @@ export async function proxyRpc(conn: ConnectionRow, body: unknown): Promise<unkn
   if (res.status === 409) {
     const newSessionId = res.headers.get('X-Transmission-Session-Id');
     if (newSessionId) {
-      sessionIds.set(conn.id, newSessionId);
+      sessionIds.set(key, newSessionId);
       headers['X-Transmission-Session-Id'] = newSessionId;
       res = await fetch(url, {
         method: 'POST',
@@ -45,8 +58,4 @@ export async function proxyRpc(conn: ConnectionRow, body: unknown): Promise<unkn
   }
 
   return res.json();
-}
-
-export function clearSessionId(connectionId: number) {
-  sessionIds.delete(connectionId);
 }

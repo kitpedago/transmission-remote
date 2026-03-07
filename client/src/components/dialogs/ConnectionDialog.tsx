@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { fetchConnections, createConnection, updateConnection, deleteConnection } from '@/api/connections';
+import { useConnectionStore } from '@/stores/connection-store';
 import { useAppStore } from '@/stores/app-store';
-import type { Connection } from '@/types/transmission';
 
 interface Props {
   open: boolean;
@@ -22,9 +20,8 @@ const defaultForm = {
 };
 
 export function ConnectionDialog({ open, onOpenChange }: Props) {
-  const queryClient = useQueryClient();
   const { setActiveConnection } = useAppStore();
-  const { data: connections = [] } = useQuery({ queryKey: ['connections'], queryFn: fetchConnections });
+  const { connections, addConnection, updateConnection, deleteConnection } = useConnectionStore();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState(defaultForm);
 
@@ -53,45 +50,39 @@ export function ConnectionDialog({ open, onOpenChange }: Props) {
 
   if (!open) return null;
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['connections'] });
-
-  const handleNew = async () => {
+  const handleNew = () => {
     try {
-      const conn = await createConnection(defaultForm);
-      await refresh();
+      const conn = addConnection(defaultForm);
       setSelectedId(conn.id);
     } catch { toast.error('Erreur de création'); }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!selectedId) return;
     try {
-      await updateConnection(selectedId, form);
-      await refresh();
+      updateConnection(selectedId, form);
       setActiveConnection(selectedId);
       onOpenChange(false);
       toast.success('Connexion sauvegardée');
     } catch { toast.error('Erreur de sauvegarde'); }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!selectedId) return;
     if (!confirm('Supprimer cette connexion ?')) return;
     try {
-      await deleteConnection(selectedId);
-      await refresh();
+      deleteConnection(selectedId);
       setSelectedId(null);
       setForm(defaultForm);
     } catch { toast.error('Erreur de suppression'); }
   };
 
-  const handleRename = async () => {
+  const handleRename = () => {
     const newName = prompt('Nouveau nom:', form.name);
     if (!newName || !selectedId) return;
     setForm({ ...form, name: newName });
     try {
-      await updateConnection(selectedId, { name: newName });
-      await refresh();
+      updateConnection(selectedId, { name: newName });
     } catch { toast.error('Erreur de renommage'); }
   };
 
@@ -105,7 +96,6 @@ export function ConnectionDialog({ open, onOpenChange }: Props) {
         </div>
 
         <div className="p-4 space-y-3">
-          {/* Connection selector */}
           <div className="flex items-center gap-2">
             <label className="text-sm min-w-[130px]">Nom de la connexion:</label>
             <select
@@ -127,7 +117,6 @@ export function ConnectionDialog({ open, onOpenChange }: Props) {
 
           <hr className="border-border" />
 
-          {/* Form */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <label className="text-sm min-w-[130px]">Hôte distant:</label>

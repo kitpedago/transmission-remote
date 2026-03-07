@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
-import { fetchConnections } from '@/api/connections';
+import { useConnectionStore } from '@/stores/connection-store';
 import {
   startTorrents, stopTorrents, removeTorrents, verifyTorrents,
   startAllTorrents, stopAllTorrents, addTorrent,
@@ -18,7 +18,7 @@ import {
 export function Toolbar() {
   const queryClient = useQueryClient();
   const { activeConnectionId, setActiveConnection, selectedTorrentIds } = useAppStore();
-  const { data: connections = [] } = useQuery({ queryKey: ['connections'], queryFn: fetchConnections });
+  const connections = useConnectionStore((s) => s.connections);
 
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [addTorrentOpen, setAddTorrentOpen] = useState(false);

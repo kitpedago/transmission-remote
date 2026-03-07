@@ -2,14 +2,13 @@ import { useSession } from '@/hooks/useSession';
 import { useSessionStats } from '@/hooks/useStats';
 import { useFreeSpace } from '@/hooks/useStats';
 import { useAppStore } from '@/stores/app-store';
+import { useConnectionStore } from '@/stores/connection-store';
 import { formatSpeed, formatBytes } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
-import { fetchConnections } from '@/api/connections';
 import { ArrowDown, ArrowUp, HardDrive } from 'lucide-react';
 
 export function StatusBar() {
   const connectionId = useAppStore((s) => s.activeConnectionId);
-  const { data: connections = [] } = useQuery({ queryKey: ['connections'], queryFn: fetchConnections });
+  const connections = useConnectionStore((s) => s.connections);
   const { data: session } = useSession();
   const { data: stats } = useSessionStats();
   const { data: freeSpace } = useFreeSpace();

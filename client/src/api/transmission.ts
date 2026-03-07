@@ -1,9 +1,25 @@
+import { useConnectionStore } from '@/stores/connection-store';
+
 // Generic RPC call through our backend proxy
-async function rpc(connectionId: number, method: string, args?: Record<string, unknown>) {
-  const res = await fetch(`/api/rpc/${connectionId}`, {
+export async function rpc(connectionId: number, method: string, args?: Record<string, unknown>) {
+  const connection = useConnectionStore.getState().getConnectionById(connectionId);
+  if (!connection) throw new Error('Connection not found');
+
+  const res = await fetch('/api/rpc', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, arguments: args }),
+    body: JSON.stringify({
+      connection: {
+        host: connection.host,
+        port: connection.port,
+        ssl: connection.ssl,
+        username: connection.username,
+        password: connection.password,
+        rpc_path: connection.rpc_path,
+      },
+      method,
+      arguments: args,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

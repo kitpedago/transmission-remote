@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import {
   startTorrents, stopTorrents, removeTorrents, verifyTorrents,
-  setTorrent, getTorrents,
+  setTorrent, getTorrents, rpc,
 } from '@/api/transmission';
 import { useTorrentDetails } from '@/hooks/useTorrents';
 import {
@@ -135,13 +135,7 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
   const setLocation = () => {
     const newLocation = prompt('Nouvel emplacement des données:');
     if (newLocation) {
-      act(() => {
-        return fetch(`/api/rpc/${connId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'torrent-set-location', arguments: { ids, location: newLocation, move: true } }),
-        }).then(r => r.json());
-      }, 'Déplacer');
+      act(() => rpc(connId, 'torrent-set-location', { ids, location: newLocation, move: true }), 'Déplacer');
     }
   };
 
@@ -149,24 +143,12 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
     if (!torrentDetail) return;
     const newName = prompt('Nouveau nom:', torrentDetail.name);
     if (newName && newName !== torrentDetail.name) {
-      act(() => {
-        return fetch(`/api/rpc/${connId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'torrent-rename-path', arguments: { ids: [torrentDetail.id], path: torrentDetail.name, name: newName } }),
-        }).then(r => r.json());
-      }, 'Renommer');
+      act(() => rpc(connId, 'torrent-rename-path', { ids: [torrentDetail.id], path: torrentDetail.name, name: newName }), 'Renommer');
     }
   };
 
   const reannounce = () => {
-    act(() => {
-      return fetch(`/api/rpc/${connId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'torrent-reannounce', arguments: { ids } }),
-      }).then(r => r.json());
-    }, 'Relancer');
+    act(() => rpc(connId, 'torrent-reannounce', { ids }), 'Relancer');
   };
 
   // Build menu items — some are hidden or adapted for multi-selection
@@ -212,13 +194,7 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
       label: 'Forcer le démarrage',
       icon: <FastForward size={14} />,
       shortcut: 'Shift+F3',
-      action: () => act(() => {
-        return fetch(`/api/rpc/${connId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'torrent-start-now', arguments: { ids } }),
-        }).then(r => r.json());
-      }, 'Forcer le démarrage'),
+      action: () => act(() => rpc(connId, 'torrent-start-now', { ids }), 'Forcer le démarrage'),
       disabled: !hasSelection,
     },
     {
@@ -282,10 +258,10 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
       label: 'File',
       icon: null,
       submenu: [
-        { label: 'Monter dans la file', action: () => act(() => fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'queue-move-up', arguments: { ids } }) }).then(r => r.json()), 'File') },
-        { label: 'Descendre dans la file', action: () => act(() => fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'queue-move-down', arguments: { ids } }) }).then(r => r.json()), 'File') },
-        { label: 'En haut de la file', action: () => act(() => fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'queue-move-top', arguments: { ids } }) }).then(r => r.json()), 'File') },
-        { label: 'En bas de la file', action: () => act(() => fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'queue-move-bottom', arguments: { ids } }) }).then(r => r.json()), 'File') },
+        { label: 'Monter dans la file', action: () => act(() => rpc(connId, 'queue-move-up', { ids }), 'File') },
+        { label: 'Descendre dans la file', action: () => act(() => rpc(connId, 'queue-move-down', { ids }), 'File') },
+        { label: 'En haut de la file', action: () => act(() => rpc(connId, 'queue-move-top', { ids }), 'File') },
+        { label: 'En bas de la file', action: () => act(() => rpc(connId, 'queue-move-bottom', { ids }), 'File') },
       ],
       disabled: !hasSelection,
     },

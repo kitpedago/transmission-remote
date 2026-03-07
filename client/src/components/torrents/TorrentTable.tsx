@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn, formatBytes, formatSpeed, formatEta, formatRatio, formatDate, getStatusLabel, TORRENT_STATUS } from '@/lib/utils';
 import { useAppStore, type SidebarFilter } from '@/stores/app-store';
-import { startTorrents, stopTorrents, removeTorrents, verifyTorrents } from '@/api/transmission';
+import { startTorrents, stopTorrents, removeTorrents, verifyTorrents, rpc } from '@/api/transmission';
 import { ContextMenu } from './ContextMenu';
 import type { Torrent } from '@/types/transmission';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -165,7 +165,7 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
           invalidate();
         } else if (e.key === 'F3' && e.shiftKey) {
           e.preventDefault();
-          await fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'torrent-start-now', arguments: { ids } }) });
+          await rpc(connId, 'torrent-start-now', { ids });
           invalidate();
         } else if (e.key === 'F4') {
           e.preventDefault();
@@ -185,7 +185,7 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
           }
         } else if (e.key === 'r' && e.ctrlKey) {
           e.preventDefault();
-          await fetch(`/api/rpc/${connId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'torrent-reannounce', arguments: { ids } }) });
+          await rpc(connId, 'torrent-reannounce', { ids });
           invalidate();
           toast.success('Relancé');
         } else if (e.key === 'a' && e.ctrlKey) {

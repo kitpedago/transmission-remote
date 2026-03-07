@@ -1,22 +1,24 @@
 import { Hono } from 'hono';
-import { db } from '../db/index.js';
-import { proxyRpc } from '../lib/rpc-proxy.js';
-import type { ConnectionRow } from '../db/schema.js';
+import { proxyRpc, type ConnectionInfo } from '../lib/rpc-proxy.js';
 
 const app = new Hono();
 
-// Proxy RPC request to Transmission daemon
-app.post('/:connectionId', async (c) => {
-  const connectionId = c.req.param('connectionId');
-  const conn = db.prepare('SELECT * FROM connections WHERE id = ?').get(connectionId) as ConnectionRow | undefined;
-
-  if (!conn) {
-    return c.json({ error: 'Connection not found' }, 404);
-  }
-
+// Stateless RPC proxy — connection details come in the request body
+app.post('/', async (c) => {
   try {
     const body = await c.req.json();
-    const result = await proxyRpc(conn, body);
+    const { connection, method, arguments: args } = body as {
+      connection: ConnectionInfo;
+      method: string;
+      arguments?: Record<string, unknown>;
+    };
+
+    if (!connection || !method) {
+      return c.json({ error: 'Missing connection or method' }, 400);
+    }
+
+    const rpcBody = { method, arguments: args };
+    const result = await proxyRpc(connection, rpcBody);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'RPC proxy error';
