@@ -1,10 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TORRENT_STATUS } from '@/lib/utils';
 import { useAppStore, type SidebarFilter } from '@/stores/app-store';
+import { addTorrent } from '@/api/transmission';
 import type { Torrent } from '@/types/transmission';
 import {
-  Download, CheckCircle, Play, Pause, Square, AlertCircle, Clock, List,
+  Download, CheckCircle, Play, Pause, Square, AlertCircle, Clock, List, Upload,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -75,7 +78,10 @@ const filters: FilterItem[] = [
 ];
 
 export function Sidebar({ torrents }: SidebarProps) {
-  const { sidebarFilter, setSidebarFilter } = useAppStore();
+  const { sidebarFilter, setSidebarFilter, activeConnectionId } = useAppStore();
+  const queryClient = useQueryClient();
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
 
   const trackers = useMemo(() => {
     const map = new Map<string, number>();
@@ -89,6 +95,69 @@ export function Sidebar({ torrents }: SidebarProps) {
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [torrents]);
+
+  const handleFiles = useCallback(async (files: FileList) => {
+    if (!activeConnectionId) {
+      toast.error('Aucune connexion active');
+      return;
+    }
+
+    const torrentFiles = Array.from(files).filter(
+      (f) => f.name.endsWith('.torrent') || f.type === 'application/x-bittorrent',
+    );
+
+    if (torrentFiles.length === 0) {
+      toast.error('Aucun fichier .torrent détecté');
+      return;
+    }
+
+    setIsAdding(true);
+    let added = 0;
+
+    for (const file of torrentFiles) {
+      try {
+        const base64 = await fileToBase64(file);
+        await addTorrent(activeConnectionId, { metainfo: base64 });
+        added++;
+      } catch (err) {
+        toast.error(`${file.name}: ${err instanceof Error ? err.message : 'Erreur'}`);
+      }
+    }
+
+    if (added > 0) {
+      queryClient.invalidateQueries({ queryKey: ['torrents'] });
+      toast.success(added === 1 ? 'Torrent ajouté et démarré' : `${added} torrents ajoutés et démarrés`);
+    }
+    setIsAdding(false);
+  }, [activeConnectionId, queryClient]);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  }, [handleFiles]);
+
+  const onFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    }
+  }, [handleFiles]);
 
   return (
     <aside className="w-52 border-r border-border bg-muted/30 flex flex-col overflow-y-auto shrink-0">
@@ -128,6 +197,50 @@ export function Sidebar({ torrents }: SidebarProps) {
           ))}
         </div>
       )}
+
+      {/* Drop zone for .torrent files */}
+      <div className="mt-auto p-2 border-t border-border">
+        <label
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          className={cn(
+            'flex flex-col items-center justify-center gap-1 p-3 rounded-md border-2 border-dashed cursor-pointer transition-all',
+            isDragging
+              ? 'border-primary bg-primary/10 scale-[1.02]'
+              : 'border-border hover:border-primary/50 hover:bg-accent/50',
+            isAdding && 'opacity-50 pointer-events-none',
+            !activeConnectionId && 'opacity-30 pointer-events-none',
+          )}
+        >
+          <input
+            type="file"
+            accept=".torrent"
+            multiple
+            onChange={onFileInput}
+            className="hidden"
+            disabled={!activeConnectionId || isAdding}
+          />
+          <Upload size={18} className={cn('text-muted-foreground', isDragging && 'text-primary')} />
+          <span className={cn('text-[11px] text-center text-muted-foreground leading-tight', isDragging && 'text-primary font-medium')}>
+            {isAdding ? 'Ajout en cours...' : isDragging ? 'Déposer ici' : 'Glisser un .torrent ici'}
+          </span>
+        </label>
+      </div>
     </aside>
   );
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:...;base64, prefix
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
