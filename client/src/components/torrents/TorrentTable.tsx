@@ -136,6 +136,8 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
 
   const filtered = useMemo(() => filterTorrents(torrents, sidebarFilter), [torrents, sidebarFilter]);
 
+  const totalSize = useMemo(() => filtered.reduce((sum, t) => sum + t.totalSize, 0), [filtered]);
+
   const table = useReactTable({
     data: filtered,
     columns,
@@ -271,6 +273,21 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
             </tr>
           )}
         </tbody>
+        {filtered.length > 0 && (
+          <tfoot className="sticky bottom-0 bg-muted/80 backdrop-blur z-10">
+            <tr>
+              {table.getHeaderGroups()[0].headers.map((header) => (
+                <td
+                  key={header.id}
+                  className="px-2 py-1 text-[13px] font-semibold text-muted-foreground border-t border-border whitespace-nowrap"
+                  style={{ width: header.getSize() }}
+                >
+                  {header.column.id === 'totalSize' ? formatBytes(totalSize) : ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
 
       {contextMenu && (
