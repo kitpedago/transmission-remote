@@ -6,10 +6,11 @@ import {
   startTorrents, stopTorrents, removeTorrents, verifyTorrents,
   setTorrent, getTorrents, rpc,
 } from '@/api/transmission';
-import { useTorrentDetails } from '@/hooks/useTorrents';
+import { useTorrentDetails, useTorrents } from '@/hooks/useTorrents';
 import {
   FolderOpen, Play, FastForward, Square, Trash2, CheckCircle,
   RefreshCw, Link, MapPin, PenLine, Info, ChevronRight,
+  Copy, Gauge, Tag, CheckSquare, ToggleLeft,
 } from 'lucide-react';
 
 interface ContextMenuProps {
@@ -28,6 +29,7 @@ interface MenuItem {
   disabled?: boolean;
   separator?: boolean;
   submenu?: MenuItem[];
+  checked?: boolean;
 }
 
 function MenuItemRow({ item }: { item: MenuItem }) {
@@ -46,12 +48,15 @@ function MenuItemRow({ item }: { item: MenuItem }) {
       >
         <span className="w-4 shrink-0">{item.icon}</span>
         <span className="flex-1">{item.label}</span>
+        {item.checked !== undefined && (
+          <span className="text-[11px]">{item.checked ? '✓' : ''}</span>
+        )}
         {item.shortcut && <span className="text-muted-foreground text-[11px] ml-4">{item.shortcut}</span>}
         {hasSubmenu && <ChevronRight size={12} className="text-muted-foreground" />}
       </button>
       {hasSubmenu && (
         <div className="hidden group-hover:block absolute left-full top-0 z-[60]">
-          <div className="bg-background border border-border rounded-md shadow-xl py-1 min-w-[160px]">
+          <div className="bg-background border border-border rounded-md shadow-xl py-1 min-w-[180px]">
             {item.submenu!.map((sub, i) => (
               <MenuItemRow key={i} item={sub} />
             ))}
@@ -70,6 +75,7 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
   const isMulti = selectedTorrentIds.length > 1;
   const torrentId = isSingle ? selectedTorrentIds[0] : null;
   const { data: torrentDetail } = useTorrentDetails(torrentId);
+  const { data: allTorrents = [] } = useTorrents();
 
   const connId = activeConnectionId!;
   const ids = selectedTorrentIds;
@@ -108,13 +114,47 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
   const adjustedX = Math.min(x, window.innerWidth - 280);
   const adjustedY = Math.min(y, window.innerHeight - 500);
 
+  // --- Actions ---
+
+  const copyPath = async () => {
+    try {
+      if (isSingle && torrentDetail?.downloadDir) {
+        await navigator.clipboard.writeText(torrentDetail.downloadDir);
+        toast.success('Chemin copié dans le presse-papiers');
+      }
+    } catch {
+      toast.error('Impossible de copier');
+    }
+    onClose();
+  };
+
+  const copyName = async () => {
+    try {
+      if (isSingle && torrentDetail?.name) {
+        await navigator.clipboard.writeText(torrentDetail.name);
+        toast.success('Nom copié');
+      } else if (isMulti) {
+        const data = await getTorrents(connId, ['id', 'name'], ids);
+        const names = (data.torrents as Array<{ id: number; name: string }>)
+          .map((t) => t.name)
+          .filter(Boolean);
+        if (names.length > 0) {
+          await navigator.clipboard.writeText(names.join('\n'));
+          toast.success(`${names.length} nom(s) copié(s)`);
+        }
+      }
+    } catch {
+      toast.error('Impossible de copier');
+    }
+    onClose();
+  };
+
   const copyMagnet = async () => {
     try {
       if (isSingle && torrentDetail?.magnetLink) {
         await navigator.clipboard.writeText(torrentDetail.magnetLink);
         toast.success('Lien magnet copié');
       } else if (isMulti) {
-        // Fetch magnet links for all selected torrents
         const data = await getTorrents(connId, ['id', 'magnetLink'], ids);
         const magnets = (data.torrents as Array<{ id: number; magnetLink: string }>)
           .map((t) => t.magnetLink)
@@ -133,9 +173,13 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
   };
 
   const setLocation = () => {
-    const newLocation = prompt('Nouvel emplacement des données:');
+    const current = isSingle && torrentDetail ? torrentDetail.downloadDir : '';
+    const newLocation = prompt('Nouvel emplacement des données:', current);
     if (newLocation) {
-      act(() => rpc(connId, 'torrent-set-location', { ids, location: newLocation, move: true }), 'Déplacer');
+      const move = confirm('Déplacer les fichiers existants vers le nouvel emplacement ?');
+      act(() => rpc(connId, 'torrent-set-location', { ids, location: newLocation, move }), 'Déplacer');
+    } else {
+      onClose();
     }
   };
 
@@ -144,6 +188,8 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
     const newName = prompt('Nouveau nom:', torrentDetail.name);
     if (newName && newName !== torrentDetail.name) {
       act(() => rpc(connId, 'torrent-rename-path', { ids: [torrentDetail.id], path: torrentDetail.name, name: newName }), 'Renommer');
+    } else {
+      onClose();
     }
   };
 
@@ -151,21 +197,73 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
     act(() => rpc(connId, 'torrent-reannounce', { ids }), 'Relancer');
   };
 
-  // Build menu items — some are hidden or adapted for multi-selection
+  const setSpeedLimit = (key: 'downloadLimit' | 'uploadLimit', enabledKey: 'downloadLimited' | 'uploadLimited', value: number | null) => {
+    if (value === null) {
+      // Disable limit
+      act(() => setTorrent(connId, ids, { [enabledKey]: false }), 'Limite');
+    } else {
+      act(() => setTorrent(connId, ids, { [enabledKey]: true, [key]: value }), 'Limite');
+    }
+  };
+
+  const setCustomSpeedLimit = (direction: 'download' | 'upload') => {
+    const label = direction === 'download' ? 'téléchargement' : 'envoi';
+    const key = direction === 'download' ? 'downloadLimit' : 'uploadLimit';
+    const enabledKey = direction === 'download' ? 'downloadLimited' : 'uploadLimited';
+    const current = torrentDetail?.[key] ?? 0;
+    const input = prompt(`Limite de ${label} (Ko/s):`, String(current));
+    if (input !== null) {
+      const val = parseInt(input, 10);
+      if (!isNaN(val) && val > 0) {
+        act(() => setTorrent(connId, ids, { [enabledKey]: true, [key]: val }), 'Limite');
+      } else {
+        onClose();
+      }
+    } else {
+      onClose();
+    }
+  };
+
+  const manageLabels = async () => {
+    // Get current labels for single torrent or prompt for new label
+    const currentLabels = torrentDetail?.labels?.join(', ') ?? '';
+    const input = prompt('Étiquettes (séparées par des virgules):', currentLabels);
+    if (input !== null) {
+      const labels = input.split(',').map((l) => l.trim()).filter(Boolean);
+      act(() => setTorrent(connId, ids, { labels }), 'Étiquettes');
+    } else {
+      onClose();
+    }
+  };
+
+  const selectAll = () => {
+    useAppStore.getState().setSelectedTorrentIds(allTorrents.map((t) => t.id));
+    onClose();
+  };
+
+  const invertSelection = () => {
+    const currentIds = new Set(selectedTorrentIds);
+    const inverted = allTorrents.filter((t) => !currentIds.has(t.id)).map((t) => t.id);
+    useAppStore.getState().setSelectedTorrentIds(inverted);
+    onClose();
+  };
+
+  // Speed limit indicators for single torrent
+  const dlLimited = torrentDetail?.downloadLimited ?? false;
+  const ulLimited = torrentDetail?.uploadLimited ?? false;
+  const dlLimit = torrentDetail?.downloadLimit ?? 0;
+  const ulLimit = torrentDetail?.uploadLimit ?? 0;
+
+  // --- Build menu items ---
   const items: MenuItem[] = [];
 
   // "Open folder" only for single selection
   if (isSingle) {
     items.push({
-      label: 'Ouvrir le dossier de destination',
+      label: 'Copier le chemin du dossier',
       icon: <FolderOpen size={14} />,
       shortcut: 'Ctrl+Enter',
-      action: () => {
-        if (torrentDetail?.downloadDir) {
-          toast.info(`Dossier: ${torrentDetail.downloadDir}`);
-        }
-        onClose();
-      },
+      action: copyPath,
       disabled: !torrentDetail,
     });
     items.push({ separator: true, label: '' });
@@ -181,7 +279,7 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
     items.push({ separator: true, label: '' });
   }
 
-  // Start / Force start / Stop — always available
+  // Start / Force start / Stop
   items.push(
     {
       label: 'Démarrer',
@@ -206,7 +304,7 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
     },
   );
 
-  // Remove — adapt label for multi
+  // Remove
   items.push(
     {
       label: isMulti ? `Enlever ${count} torrents` : 'Enlever',
@@ -242,15 +340,15 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
 
   items.push({ separator: true, label: '' });
 
-  // Priority & Queue — available for single and multi
+  // Priority & Queue
   items.push(
     {
       label: 'Priorité',
       icon: null,
       submenu: [
-        { label: 'Haute', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: 1 }), 'Priorité') },
-        { label: 'Normale', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: 0 }), 'Priorité') },
-        { label: 'Basse', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: -1 }), 'Priorité') },
+        { label: 'Haute', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: 1 }), 'Priorité'), checked: torrentDetail?.bandwidthPriority === 1 },
+        { label: 'Normale', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: 0 }), 'Priorité'), checked: torrentDetail?.bandwidthPriority === 0 },
+        { label: 'Basse', action: () => act(() => setTorrent(connId, ids, { bandwidthPriority: -1 }), 'Priorité'), checked: torrentDetail?.bandwidthPriority === -1 },
       ],
       disabled: !hasSelection,
     },
@@ -269,7 +367,54 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
 
   items.push({ separator: true, label: '' });
 
-  // Reannounce & Verify — available for both
+  // Speed limits per torrent
+  items.push(
+    {
+      label: `Limite téléchargement${dlLimited && isSingle ? ` (${dlLimit} Ko/s)` : ''}`,
+      icon: <Gauge size={14} />,
+      submenu: [
+        { label: 'Illimitée', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', null), checked: isSingle && !dlLimited },
+        { separator: true, label: '' },
+        { label: '50 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 50) },
+        { label: '100 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 100) },
+        { label: '250 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 250) },
+        { label: '500 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 500) },
+        { label: '1000 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 1000) },
+        { label: '2500 Ko/s', action: () => setSpeedLimit('downloadLimit', 'downloadLimited', 2500) },
+        { separator: true, label: '' },
+        { label: 'Personnalisée...', action: () => setCustomSpeedLimit('download') },
+      ],
+      disabled: !hasSelection,
+    },
+    {
+      label: `Limite envoi${ulLimited && isSingle ? ` (${ulLimit} Ko/s)` : ''}`,
+      icon: <Gauge size={14} />,
+      submenu: [
+        { label: 'Illimitée', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', null), checked: isSingle && !ulLimited },
+        { separator: true, label: '' },
+        { label: '50 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 50) },
+        { label: '100 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 100) },
+        { label: '250 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 250) },
+        { label: '500 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 500) },
+        { label: '1000 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 1000) },
+        { label: '2500 Ko/s', action: () => setSpeedLimit('uploadLimit', 'uploadLimited', 2500) },
+        { separator: true, label: '' },
+        { label: 'Personnalisée...', action: () => setCustomSpeedLimit('upload') },
+      ],
+      disabled: !hasSelection,
+    },
+    {
+      label: 'Respecter les limites de session',
+      icon: <ToggleLeft size={14} />,
+      action: () => act(() => setTorrent(connId, ids, { honorsSessionLimits: !(torrentDetail?.honorsSessionLimits ?? true) }), 'Session limits'),
+      checked: isSingle ? (torrentDetail?.honorsSessionLimits ?? true) : undefined,
+      disabled: !hasSelection,
+    },
+  );
+
+  items.push({ separator: true, label: '' });
+
+  // Reannounce & Verify
   items.push(
     {
       label: 'Relancer (obtenir plus de pairs)',
@@ -288,15 +433,26 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
 
   items.push({ separator: true, label: '' });
 
-  // Copy Magnet — available for both (fetches all magnet links for multi)
+  // Copy submenu
   items.push({
-    label: isMulti ? `Copier ${count} Magnet Links` : 'Copier Magnet Link',
-    icon: <Link size={14} />,
-    action: copyMagnet,
+    label: 'Copier',
+    icon: <Copy size={14} />,
+    submenu: [
+      { label: isMulti ? `${count} noms` : 'Nom', action: copyName },
+      { label: isMulti ? `${count} Magnet Links` : 'Magnet Link', action: copyMagnet },
+    ],
     disabled: !hasSelection,
   });
 
-  // Set location — available for both
+  // Labels
+  items.push({
+    label: 'Étiquettes...',
+    icon: <Tag size={14} />,
+    action: manageLabels,
+    disabled: !hasSelection,
+  });
+
+  // Set location
   items.push({ separator: true, label: '' });
   items.push({
     label: 'Définir l\'emplacement des données...',
@@ -319,8 +475,24 @@ export function ContextMenu({ x, y, onClose, onShowProperties }: ContextMenuProp
 
   items.push({ separator: true, label: '' });
 
+  // Selection
+  items.push(
+    {
+      label: 'Sélectionner tout',
+      icon: <CheckSquare size={14} />,
+      shortcut: 'Ctrl+A',
+      action: selectAll,
+    },
+    {
+      label: 'Inverser la sélection',
+      icon: null,
+      action: invertSelection,
+    },
+  );
+
   // Properties — only single
   if (isSingle) {
+    items.push({ separator: true, label: '' });
     items.push({
       label: 'Propriétés...',
       icon: <Info size={14} />,

@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn, formatBytes, formatSpeed, formatEta, formatRatio, formatDate, getStatusLabel, TORRENT_STATUS } from '@/lib/utils';
 import { useAppStore, type SidebarFilter } from '@/stores/app-store';
-import { startTorrents, stopTorrents, removeTorrents, verifyTorrents, rpc } from '@/api/transmission';
+import { startTorrents, stopTorrents, removeTorrents, verifyTorrents, rpc, getTorrents } from '@/api/transmission';
 import { ContextMenu } from './ContextMenu';
 import type { Torrent } from '@/types/transmission';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -158,7 +158,8 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
 
     const handleKeyDown = async (e: KeyboardEvent) => {
       const ids = useAppStore.getState().selectedTorrentIds;
-      if (!ids.length && !['F3'].includes(e.key)) return;
+      const noSelectionKeys = ['F3', 'a'];
+      if (!ids.length && !noSelectionKeys.includes(e.key)) return;
 
       try {
         if (e.key === 'F3' && !e.shiftKey) {
@@ -196,6 +197,47 @@ export function TorrentTable({ torrents }: TorrentTableProps) {
         } else if (e.key === 'Enter' && e.altKey) {
           e.preventDefault();
           useAppStore.getState().setDetailPanelOpen(true);
+        } else if (e.key === 'Enter' && e.ctrlKey) {
+          // Ctrl+Enter: copy download folder path
+          e.preventDefault();
+          if (ids.length === 1) {
+            const data = await getTorrents(connId, ['id', 'downloadDir'], [ids[0]]);
+            const t = (data.torrents as Array<{ id: number; downloadDir: string }>)[0];
+            if (t?.downloadDir) {
+              await navigator.clipboard.writeText(t.downloadDir);
+              toast.success('Chemin copié');
+            }
+          }
+        } else if (e.key === 'F2') {
+          // F2: rename torrent
+          e.preventDefault();
+          if (ids.length === 1) {
+            const data = await getTorrents(connId, ['id', 'name'], [ids[0]]);
+            const t = (data.torrents as Array<{ id: number; name: string }>)[0];
+            if (t) {
+              const newName = prompt('Nouveau nom:', t.name);
+              if (newName && newName !== t.name) {
+                await rpc(connId, 'torrent-rename-path', { ids: [t.id], path: t.name, name: newName });
+                invalidate();
+                toast.success('Renommé');
+              }
+            }
+          }
+        } else if (e.key === 'F6') {
+          // F6: set location
+          e.preventDefault();
+          let currentDir = '';
+          if (ids.length === 1) {
+            const data = await getTorrents(connId, ['id', 'downloadDir'], [ids[0]]);
+            currentDir = (data.torrents as Array<{ id: number; downloadDir: string }>)[0]?.downloadDir ?? '';
+          }
+          const newLocation = prompt('Nouvel emplacement des données:', currentDir);
+          if (newLocation) {
+            const move = confirm('Déplacer les fichiers existants vers le nouvel emplacement ?');
+            await rpc(connId, 'torrent-set-location', { ids, location: newLocation, move });
+            invalidate();
+            toast.success('Emplacement mis à jour');
+          }
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Erreur');
