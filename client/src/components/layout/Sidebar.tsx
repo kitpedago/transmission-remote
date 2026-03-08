@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TORRENT_STATUS } from '@/lib/utils';
 import { useAppStore, type SidebarFilter } from '@/stores/app-store';
-import { addTorrent } from '@/api/transmission';
+import { addTorrent, rpc } from '@/api/transmission';
 import type { Torrent } from '@/types/transmission';
 import {
   Download, CheckCircle, Play, Pause, Square, AlertCircle, Clock, List, Upload,
@@ -117,7 +117,12 @@ export function Sidebar({ torrents }: SidebarProps) {
     for (const file of torrentFiles) {
       try {
         const base64 = await fileToBase64(file);
-        await addTorrent(activeConnectionId, { metainfo: base64 });
+        const result = await addTorrent(activeConnectionId, { metainfo: base64 });
+        // Start immediately (bypass queue)
+        const added_torrent = result?.['torrent-added'] || result?.['torrent-duplicate'];
+        if (added_torrent?.id) {
+          await rpc(activeConnectionId, 'torrent-start-now', { ids: [added_torrent.id] });
+        }
         added++;
       } catch (err) {
         toast.error(`${file.name}: ${err instanceof Error ? err.message : 'Erreur'}`);

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { addTorrent } from '@/api/transmission';
+import { addTorrent, rpc } from '@/api/transmission';
 import { useAppStore } from '@/stores/app-store';
 import { useSession } from '@/hooks/useSession';
 
@@ -17,29 +17,38 @@ export function AddTorrentDialog({ open, onOpenChange }: Props) {
   const [url, setUrl] = useState('');
   const [downloadDir, setDownloadDir] = useState('');
   const [paused, setPaused] = useState(false);
+  const [startNow, setStartNow] = useState(false);
 
   if (!open) return null;
 
   const handleSubmit = async () => {
     if (!connectionId || !url.trim()) return;
     try {
+      let result;
       // Check if it's a file or a URL/magnet
       if (url.startsWith('data:') || url.includes(';base64,')) {
         const base64 = url.split(',')[1];
-        await addTorrent(connectionId, {
+        result = await addTorrent(connectionId, {
           metainfo: base64,
           'download-dir': downloadDir || undefined,
           paused,
         });
       } else {
-        await addTorrent(connectionId, {
+        result = await addTorrent(connectionId, {
           filename: url.trim(),
           'download-dir': downloadDir || undefined,
           paused,
         });
       }
+      // Start immediately (bypass queue) if option is checked
+      if (startNow && !paused) {
+        const added = result?.['torrent-added'] || result?.['torrent-duplicate'];
+        if (added?.id) {
+          await rpc(connectionId, 'torrent-start-now', { ids: [added.id] });
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['torrents'] });
-      toast.success('Torrent ajouté');
+      toast.success(startNow && !paused ? 'Torrent ajouté et démarré immédiatement' : 'Torrent ajouté');
       setUrl('');
       onOpenChange(false);
     } catch (err) {
@@ -90,6 +99,10 @@ export function AddTorrentDialog({ open, onOpenChange }: Props) {
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />
             Ajouter en pause
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} disabled={paused} />
+            <span className={paused ? 'text-muted-foreground' : ''}>Démarrer immédiatement (ignorer la file d'attente)</span>
           </label>
         </div>
 
