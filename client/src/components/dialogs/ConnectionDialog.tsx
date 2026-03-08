@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { useConnectionStore } from '@/stores/connection-store';
+import { useConnectionStore, type AutoConnect } from '@/stores/connection-store';
 import { useAppStore } from '@/stores/app-store';
 
 interface Props {
@@ -21,7 +21,7 @@ const defaultForm = {
 
 export function ConnectionDialog({ open, onOpenChange }: Props) {
   const { setActiveConnection } = useAppStore();
-  const { connections, addConnection, updateConnection, deleteConnection } = useConnectionStore();
+  const { connections, addConnection, updateConnection, deleteConnection, autoConnect, setAutoConnect } = useConnectionStore();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState(defaultForm);
 
@@ -146,6 +146,21 @@ export function ConnectionDialog({ open, onOpenChange }: Props) {
               <input type="checkbox" checked={form.auto_reconnect} onChange={(e) => set('auto_reconnect', e.target.checked)} />
               Reconnexion automatique
             </label>
+          </div>
+
+          <hr className="border-border" />
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm min-w-[130px]">Au démarrage:</label>
+            <select
+              className="flex-1 h-8 px-2 border border-border rounded bg-background text-sm"
+              value={autoConnect}
+              onChange={(e) => setAutoConnect(e.target.value as AutoConnect)}
+            >
+              <option value="none">Ne pas se connecter</option>
+              <option value="last">Se connecter au dernier serveur utilisé</option>
+              <option value="first">Se connecter au premier serveur de la liste</option>
+            </select>
           </div>
         </div>
 

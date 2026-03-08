@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Toolbar } from '@/components/layout/Toolbar';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
@@ -5,9 +6,39 @@ import { TorrentTable } from '@/components/torrents/TorrentTable';
 import { DetailPanel } from '@/components/details/DetailPanel';
 import { useTorrents } from '@/hooks/useTorrents';
 import { useAppStore } from '@/stores/app-store';
+import { useConnectionStore } from '@/stores/connection-store';
 
 export default function App() {
-  const { activeConnectionId } = useAppStore();
+  const { activeConnectionId, setActiveConnection } = useAppStore();
+  const didAutoConnect = useRef(false);
+
+  // Auto-connect on startup
+  useEffect(() => {
+    if (didAutoConnect.current) return;
+    didAutoConnect.current = true;
+
+    const { autoConnect, lastConnectionId, connections } = useConnectionStore.getState();
+    if (autoConnect === 'none' || connections.length === 0) return;
+
+    if (autoConnect === 'last' && lastConnectionId) {
+      const exists = connections.find((c) => c.id === lastConnectionId);
+      if (exists) {
+        setActiveConnection(lastConnectionId);
+        return;
+      }
+    }
+    // 'first' or fallback when 'last' connection no longer exists
+    if (autoConnect === 'first' || autoConnect === 'last') {
+      setActiveConnection(connections[0].id);
+    }
+  }, [setActiveConnection]);
+
+  // Track last used connection
+  useEffect(() => {
+    if (activeConnectionId) {
+      useConnectionStore.getState().setLastConnectionId(activeConnectionId);
+    }
+  }, [activeConnectionId]);
   const { data: torrents = [], isLoading, error } = useTorrents();
 
   return (
