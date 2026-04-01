@@ -29,7 +29,6 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY --from=prod-deps /app/node_modules node_modules/
-COPY --from=prod-deps /app/server/node_modules server/node_modules/
 COPY --from=server-build /app/server/dist server/dist/
 COPY --from=server-build /app/server/package.json server/
 COPY --from=client-build /app/client/dist client/dist/
