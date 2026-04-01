@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    container_name: transmission-remote
+    restart: unless-stopped
+    ports:
+      - "8080:3000"
+    volumes:
+      - app-data:/app/server/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+
+volumes:
+  app-data:
