@@ -1,35 +1,40 @@
-# Stage 1: Build client
-FROM node:20-alpine AS client-build
+# Stage 1: Install all dependencies
+FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY client/package.json client/
 COPY server/package.json server/
 RUN npm ci
+
+# Stage 2: Build client
+FROM deps AS client-build
 COPY client/ client/
 RUN npm run build -w client
 
-# Stage 2: Build server
-FROM node:20-alpine AS server-build
+# Stage 3: Build server
+FROM deps AS server-build
+COPY server/ server/
+RUN npm run build -w server
+
+# Stage 4: Production deps only
+FROM node:20-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY client/package.json client/
 COPY server/package.json server/
 RUN npm ci --omit=dev
-COPY server/ server/
-RUN npm run build -w server
 
-# Stage 3: Production
+# Stage 5: Production image
 FROM node:20-alpine
 WORKDIR /app
 
-COPY --from=server-build /app/node_modules node_modules/
-COPY --from=server-build /app/server/node_modules server/node_modules/
+COPY --from=prod-deps /app/node_modules node_modules/
+COPY --from=prod-deps /app/server/node_modules server/node_modules/
 COPY --from=server-build /app/server/dist server/dist/
 COPY --from=server-build /app/server/package.json server/
 COPY --from=client-build /app/client/dist client/dist/
 COPY package.json ./
 
-# Create data directory for SQLite
 RUN mkdir -p server/data
 
 ENV PORT=3000
