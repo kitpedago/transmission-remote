@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { useConnectionStore, type AutoConnect } from '@/stores/connection-store';
+import { useConnectionStore, useConnectionPrefs, type AutoConnect } from '@/stores/connection-store';
 import { useAppStore } from '@/stores/app-store';
 
 interface Props {
@@ -21,7 +21,8 @@ const defaultForm = {
 
 export function ConnectionDialog({ open, onOpenChange }: Props) {
   const { setActiveConnection } = useAppStore();
-  const { connections, addConnection, updateConnection, deleteConnection, autoConnect, setAutoConnect } = useConnectionStore();
+  const { connections, addConnection, updateConnection, deleteConnection } = useConnectionStore();
+  const { autoConnect, setAutoConnect } = useConnectionPrefs();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState(defaultForm);
 
@@ -50,39 +51,39 @@ export function ConnectionDialog({ open, onOpenChange }: Props) {
 
   if (!open) return null;
 
-  const handleNew = () => {
+  const handleNew = async () => {
     try {
-      const conn = addConnection(defaultForm);
+      const conn = await addConnection(defaultForm);
       setSelectedId(conn.id);
     } catch { toast.error('Erreur de création'); }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!selectedId) return;
     try {
-      updateConnection(selectedId, form);
+      await updateConnection(selectedId, form);
       setActiveConnection(selectedId);
       onOpenChange(false);
       toast.success('Connexion sauvegardée');
     } catch { toast.error('Erreur de sauvegarde'); }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedId) return;
     if (!confirm('Supprimer cette connexion ?')) return;
     try {
-      deleteConnection(selectedId);
+      await deleteConnection(selectedId);
       setSelectedId(null);
       setForm(defaultForm);
     } catch { toast.error('Erreur de suppression'); }
   };
 
-  const handleRename = () => {
+  const handleRename = async () => {
     const newName = prompt('Nouveau nom:', form.name);
     if (!newName || !selectedId) return;
     setForm({ ...form, name: newName });
     try {
-      updateConnection(selectedId, { name: newName });
+      await updateConnection(selectedId, { name: newName });
     } catch { toast.error('Erreur de renommage'); }
   };
 

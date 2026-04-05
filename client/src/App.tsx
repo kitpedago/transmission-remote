@@ -6,18 +6,26 @@ import { TorrentTable } from '@/components/torrents/TorrentTable';
 import { DetailPanel } from '@/components/details/DetailPanel';
 import { useTorrents } from '@/hooks/useTorrents';
 import { useAppStore } from '@/stores/app-store';
-import { useConnectionStore } from '@/stores/connection-store';
+import { useConnectionStore, useConnectionPrefs } from '@/stores/connection-store';
 
 export default function App() {
   const { activeConnectionId, setActiveConnection } = useAppStore();
+  const loaded = useConnectionStore((s) => s.loaded);
+  const loadConnections = useConnectionStore((s) => s.loadConnections);
   const didAutoConnect = useRef(false);
 
-  // Auto-connect on startup
+  // Load connections from server on startup
   useEffect(() => {
-    if (didAutoConnect.current) return;
+    loadConnections().catch((err) => console.error('Failed to load connections:', err));
+  }, [loadConnections]);
+
+  // Auto-connect after connections are loaded
+  useEffect(() => {
+    if (!loaded || didAutoConnect.current) return;
     didAutoConnect.current = true;
 
-    const { autoConnect, lastConnectionId, connections } = useConnectionStore.getState();
+    const { autoConnect, lastConnectionId } = useConnectionPrefs.getState();
+    const { connections } = useConnectionStore.getState();
     if (autoConnect === 'none' || connections.length === 0) return;
 
     if (autoConnect === 'last' && lastConnectionId) {
@@ -31,12 +39,12 @@ export default function App() {
     if (autoConnect === 'first' || autoConnect === 'last') {
       setActiveConnection(connections[0].id);
     }
-  }, [setActiveConnection]);
+  }, [loaded, setActiveConnection]);
 
   // Track last used connection
   useEffect(() => {
     if (activeConnectionId) {
-      useConnectionStore.getState().setLastConnectionId(activeConnectionId);
+      useConnectionPrefs.getState().setLastConnectionId(activeConnectionId);
     }
   }, [activeConnectionId]);
   const { data: torrents = [], isLoading, error } = useTorrents();
